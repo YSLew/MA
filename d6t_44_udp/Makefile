@@ -1,5 +1,5 @@
 # name of your application
-APPLICATION = Task01
+APPLICATION = D6t
 
 # If no BOARD is found in the environment, use this default:
 BOARD ?= samr21-xpro
@@ -16,8 +16,20 @@ CFLAGS += -DDEVELHELP
 QUIET ?= 1
 
 # Modules to include:
+USEMODULE += gnrc_netdev_default
+USEMODULE += auto_init_gnrc_netif
+USEMODULE += gnrc_ipv6_router_default
+USEMODULE += gnrc_sock_udp
+USEMODULE += sock_util
+USEMODULE += gnrc_rpl
+USEMODULE += auto_init_gnrc_rpl
 USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
+USEMODULE += xtimer
+
+# Specify the mandatory networking modules for IPv6 and UDP
+
 
 include $(RIOTBASE)/Makefile.include
+
