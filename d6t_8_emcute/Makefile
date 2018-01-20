@@ -20,6 +20,7 @@ USEMODULE += gnrc_netdev_default
 USEMODULE += auto_init_gnrc_netif
 USEMODULE += gnrc_ipv6_default
 USEMODULE += gnrc_sock_udp
+USEMODULE += emcute
 USEMODULE += sock_util
 USEMODULE += gnrc_rpl
 USEMODULE += auto_init_gnrc_rpl
@@ -27,6 +28,7 @@ USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
 USEMODULE += xtimer
+
 
 include $(RIOTBASE)/Makefile.include
 
