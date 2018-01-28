@@ -25,6 +25,7 @@
 #define EMCUTE_PORT         (1883U)                          //UDP port used for listening
 #define EMCUTE_ID           ("gertrud")
 #define EMCUTE_PRIO         (THREAD_PRIORITY_MAIN - 1)
+#define RCV_QUEUE_SIZE      (8)
 
 //#define NUMOFSUBS           (16U)
 //#define TOPIC_MAXLEN        (64U)
@@ -34,9 +35,12 @@ static char stack[THREAD_STACKSIZE_DEFAULT];
 //static char topics[NUMOFSUBS][TOPIC_MAXLEN];
 static kernel_pid_t emcute_pid;
 
-char server_addr[50] = "[fe80::7b78:3f01:b6a3:c2e]:8791";                  //server address and port
-//char server_addr[25] = "fe80::7b78:3f01:b6a3:c2e";
-//char server_port_num[5]     = "1886";
+//char server_addr[50] = "[fe80::7b78:3f01:b6a3:c2e]:8791";                  //server address and port
+char server_addr[25]        = "fe80::7b78:3f01:b6a3:c2e";
+char server_port_num[5]     = "1886";
+char * sensor_data_topic = "SD/D6t_8";
+char * last_message = "D6t_8 disconnected";
+
 
 i2c_t i2c;
 i2c_speed_t speed = I2C_SPEED_NORMAL;		//100 kbit/sec
@@ -45,23 +49,25 @@ uint8_t buffer[buffer_size];
 int ptat, status;
 int p[pixel_size], pd[pixel_size], p_old[pixel_size];
 int written, read;
-
 uint8_t pkt[pixel_size];
+
+//static msg_t rcv_queue[RCV_QUEUE_SIZE];
 
 static void *emcute_thread(void *arg)
 {
     (void)arg;
-    msg_t msg;
+//    msg_t msg;
     emcute_run(EMCUTE_PORT, EMCUTE_ID);
     puts("In emcute_thread");
+//    msg_init_queue(rcv_queue, RCV_QUEUE_SIZE);
     //connect to gateway
 
-    while(1)
-    {
-        if(msg_try_receive(&msg))
-            {printf("Received %" PRIu32 "\n", msg.content.value);}
+//    while(1)
+//    {
+//        if(msg_try_receive(&msg))
+//            {printf("Received %" PRIu32 "\n", msg.content.value);}
         //publish to topic
-    }
+//    }
     return NULL;    /* should never be reached */
 }
 
@@ -78,13 +84,22 @@ int main(void)
     /* initialize our subscription buffers */
 //    memset(subscriptions, 0, (NUMOFSUBS * sizeof(emcute_sub_t)));
 
-    msg_t msg;
-    msg.content.value = 0;
-
     /* start the emcute thread */
-    emcute_pid = thread_create(stack, sizeof(stack), EMCUTE_PRIO, 0,
-                    emcute_thread, NULL, "emcute");
+    emcute_pid = thread_create(stack, sizeof(stack), EMCUTE_PRIO, 0, emcute_thread, NULL, "emcute");
+    /* connect to gateway */
+    sock_udp_ep_t gw = { .family = AF_INET6, .port = EMCUTE_PORT};
+    if (ipv6_addr_from_str((ipv6_addr_t *)&gw.addr.ipv6, server_addr) == NULL)
+        {
+            puts("error parsing IPv6 address");
+            return 1;
+        }
+    if (emcute_con(&gw, true, sensor_data_topic, last_message, strlen(last_message), 0) != EMCUTE_OK)
+    {
+        puts("error: unable to connect to gateway!!");
+        return 1;
+    }
 
+    /* interact with sensor and publish data */
     while(1)
     {
     	written = i2c_write_byte(i2c, 0x0a, 0x4c);
@@ -103,10 +118,16 @@ int main(void)
         for(i = 0; i < pixel_size; i++)
             {
                 if(p[i] - ptat > c_diff)
-                    {pkt[i+1] = 1;
-                    msg.content.value = 1;}
+                    {
+                        pkt[i+1] = 1;
+                        publish
+                        break;
+                    }
+
                 else
                     pkt[i+1] = 0;
+                    if(i==7)
+                        publish
             }
 
         pkt[0] = sensor_id;
@@ -115,10 +136,12 @@ int main(void)
         printf ("%d %4d %4d %4d %4d %4d %4d %4d\n\r",  pkt[1],  pkt[2],  pkt[3],  pkt[4],  pkt[5],  pkt[6],  pkt[7], pkt[8]);
         puts("------------\n");
 
-        if (msg_try_send(&msg, emcute_pid) == 1)
-            {puts("msg sent from main thread");}
+//        if (msg_try_send(&msg, emcute_pid) == 1)
+//            {puts("msg sent from main thread");}
+//        else
+//            puts("msg not sent");
 
-        xtimer_usleep(1000);
+        xtimer_sleep(5);
     }
     return 0;
 }
