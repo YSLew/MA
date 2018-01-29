@@ -39,8 +39,10 @@ static kernel_pid_t emcute_pid;
 char server_addr[25]        = "fe80::7b78:3f01:b6a3:c2e";
 char server_port_num[5]     = "1886";
 char * sensor_data_topic = "SD/D6t_8";
-char * last_message = "D6t_8 disconnected";
-
+char * last_message = "Disconnected";
+char * message = "0";
+//uint8_t last_message = 0x32;
+//uint8_t message = 0x30;
 
 i2c_t i2c;
 i2c_speed_t speed = I2C_SPEED_NORMAL;		//100 kbit/sec
@@ -56,21 +58,31 @@ uint8_t pkt[pixel_size];
 static void *emcute_thread(void *arg)
 {
     (void)arg;
-//    msg_t msg;
     emcute_run(EMCUTE_PORT, EMCUTE_ID);
-    puts("In emcute_thread");
-//    msg_init_queue(rcv_queue, RCV_QUEUE_SIZE);
-    //connect to gateway
-
-//    while(1)
-//    {
-//        if(msg_try_receive(&msg))
-//            {printf("Received %" PRIu32 "\n", msg.content.value);}
-        //publish to topic
-//    }
     return NULL;    /* should never be reached */
 }
 
+int data_pub(char *name, const char *data)
+{
+    emcute_topic_t t;
+    unsigned flags = EMCUTE_QOS_0;
+    /*get topic id*/
+    t.name = name;
+    if (emcute_reg(&t) != EMCUTE_OK)
+    {
+        puts("error: unable to obtain topic ID");
+        return 1;
+    }
+    /*publish data*/
+    if (emcute_pub(&t, message, strlen(message), flags) != EMCUTE_OK)
+    {
+        puts("unable to publish data");
+        return 1;
+    }
+    puts("data published");
+    return 0;
+
+}
 
 int main(void)
 {
@@ -93,7 +105,7 @@ int main(void)
             puts("error parsing IPv6 address");
             return 1;
         }
-    if (emcute_con(&gw, true, sensor_data_topic, last_message, strlen(last_message), 0) != EMCUTE_OK)
+    if (emcute_con(&gw, true, sensor_data_topic, (char*)last_message, sizeof(last_message), 0) != EMCUTE_OK)
     {
         puts("error: unable to connect to gateway!!");
         return 1;
@@ -120,14 +132,20 @@ int main(void)
                 if(p[i] - ptat > c_diff)
                     {
                         pkt[i+1] = 1;
-                        publish
+                        message = "1";
+                        data_pub(sensor_data_topic, message);
                         break;
                     }
-
                 else
+                {
                     pkt[i+1] = 0;
                     if(i==7)
-                        publish
+                    {
+                        message = "0";
+                        data_pub(sensor_data_topic, message);
+                    }
+
+                }
             }
 
         pkt[0] = sensor_id;
