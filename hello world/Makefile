@@ -1,5 +1,5 @@
 # name of your application
-APPLICATION = D6t_8
+APPLICATION = Hello world!
 
 # If no BOARD is found in the environment, use this default:
 BOARD ?= samr21-xpro
@@ -16,13 +16,6 @@ CFLAGS += -DDEVELHELP
 QUIET ?= 1
 
 # Modules to include:
-USEMODULE += gnrc_netdev_default
-USEMODULE += auto_init_gnrc_netif
-USEMODULE += gnrc_ipv6_default
-USEMODULE += gnrc_sock_udp
-USEMODULE += emcute
 USEMODULE += xtimer
 
-
 include $(RIOTBASE)/Makefile.include
-

@@ -16,11 +16,6 @@ CFLAGS += -DDEVELHELP
 QUIET ?= 1
 
 # Modules to include:
-USEMODULE += gnrc_netdev_default
-USEMODULE += auto_init_gnrc_netif
-USEMODULE += gnrc_ipv6_default
-USEMODULE += gnrc_sock_udp
-USEMODULE += emcute
 USEMODULE += xtimer
 
 

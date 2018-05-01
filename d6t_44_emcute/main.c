@@ -1,66 +1,99 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 
-#include "shell.h"
 #include "thread.h"
 #include "xtimer.h"
 #include "periph/i2c.h"
-#include "net/gnrc/rpl.h"
-#include "net/af.h"
-#include "net/protnum.h"
+
+#include "net/emcute.h"
 #include "net/ipv6/addr.h"
-#include "net/sock/udp.h"
-#include "net/sock/util.h"
+#include "msg.h"
 
-#define buffer_size 34
-#define sensor_id 44
-#define pixel_size 18                               //pixel_size =sensor id +  sensor pixel size + end bit
-#define c_diff 25
+#define buffer_size         35                              //(sensor pixel size * 2) +3
+#define sensor_id           44
+#define pixel_size          18                               //pixel_size =sensor id +  sensor pixel size + end bit
+#define c_diff              30
+#define interval            1000
 
-char server_addr[50] = "[fe80::7b78:3f01:b6a3:c2e]:8791";                  //server address and port
+#define EMCUTE_PORT         (1883U)                          
+#define EMCUTE_ID           ("D6T_44")
+#define EMCUTE_PRIO         (THREAD_PRIORITY_MAIN - 1)
+#define RCV_QUEUE_SIZE      (8)
+#define BROKER_PORT         (1886U)
+
+static char stack[THREAD_STACKSIZE_DEFAULT];
+static kernel_pid_t emcute_pid;
+
+char server_addr[18]        = "fd00:dead:beef::1";
+char * sensor_data_topic    = "S_D/D6T_44";
+char * last_message         = "Disconnected";
+char * message              = "0";
 
 i2c_t i2c;
 i2c_speed_t speed = I2C_SPEED_NORMAL;		//100 kbit/sec
-int i, status;
+volatile int i;
 uint8_t buffer[buffer_size];
-int ptat;
+int ptat, status;
 int p[pixel_size], pd[pixel_size], p_old[pixel_size];
 int written, read;
-
 uint8_t pkt[pixel_size];
-//uint8_t test[10] = {44,1,0,1,0,1,0,1,0,99};
+
+static void *emcute_thread(void *arg)
+{
+    (void)arg;
+    emcute_run(EMCUTE_PORT, EMCUTE_ID);
+    return NULL;    /* should never be reached */
+}
+
+int data_pub(char *name, const char *data)
+{
+    emcute_topic_t t;
+    unsigned flags = EMCUTE_QOS_0;
+    /*get topic id*/
+    t.name = name;
+    if (emcute_reg(&t) != EMCUTE_OK)
+    {
+        puts("error: unable to obtain topic ID");
+        return 1;
+    }
+    /*publish data*/
+    if (emcute_pub(&t, message, strlen(message), flags) != EMCUTE_OK)
+    {
+        puts("unable to publish data");
+        return 1;
+    }
+    puts("data published");
+    return 0;
+
+}
 
 int main(void)
 {
     puts("This is D6t_44");
     status = i2c_init_master(i2c, speed);
-    printf("init_master: %d\n", status); 
-    printf("speed: %d\n", speed);
+//    printf("init_master: %d\n", status); 
+//    printf("speed: %d\n", speed);
     status =  i2c_acquire(i2c);
-    printf("bus acquired: %d\n", status);
+//    printf("bus acquired: %d\n", status);
 
-    if(gnrc_rpl_init(7)<0)
+    /* start the emcute thread */
+    emcute_pid = thread_create(stack, sizeof(stack), EMCUTE_PRIO, 0, emcute_thread, NULL, "emcute");
+    /* connect to gateway */
+    sock_udp_ep_t gw = { .family = AF_INET6, .port = BROKER_PORT};
+    if (ipv6_addr_from_str((ipv6_addr_t *)&gw.addr.ipv6, server_addr) == NULL)
+        {
+            puts("error parsing IPv6 address");
+            return 1;
+        }
+    if (emcute_con(&gw, true, sensor_data_topic, (char*)last_message, sizeof(last_message), 0) != EMCUTE_OK)
     {
-        gnrc_rpl_init(6);
-        puts("initialised rpl on iface 6");
-    }
-    else
-        puts("initialised rpl on iface 7");
-
-    sock_udp_ep_t local = SOCK_IPV6_EP_ANY;
-    sock_udp_t sock;
-    local.port = 0xabcd;
-    if (sock_udp_create(&sock, &local, NULL, 0) < 0)
-    {
-        puts("Error creating UDP sock");
+        puts("error: unable to connect to gateway!!");
         return 1;
     }
 
-    sock_udp_ep_t remote = { .family = AF_INET6 };
-    sock_udp_str2ep(&remote, server_addr);                      //convert string into UDP endpoint structure
-
-
+    /* interact with sensor and publish data */
     while(1)
     {
     	written = i2c_write_byte(i2c, 0x0a, 0x4c);
@@ -70,45 +103,30 @@ int main(void)
 
         ptat = 256*(int)buffer[1] + (int)buffer[0];
         for(i = 0; i < pixel_size; i++)
-        p[i] = 256*(int)buffer[(i*2)+3] + (int)buffer[(i*2)+2];
-
-        for(i = 0; i < pixel_size-1; i++)
+            {p[i] = 256*(int)buffer[(i*2)+3] + (int)buffer[(i*2)+2];}
+      
+        for(i = 0; i < pixel_size; i++)
             {
                 if(p[i] - ptat > c_diff)
-                    pkt[i+1] = 1;
+                    {
+                        pkt[i+1] = 1;
+                        message = "1";
+                        data_pub(sensor_data_topic, message);
+                        break;
+                    }
                 else
+                {
                     pkt[i+1] = 0;
+                    if(i==7)
+                    {
+                        message = "0";
+                        data_pub(sensor_data_topic, message);
+                    }
+
+                }
             }
-        pkt[0] = sensor_id;
-        pkt[17] = 99;
 
-        printf ("ptat = %d\n\r", ptat);
-        printf ("%4d %4d %4d %4d\n\r",  pkt[1],  pkt[2],  pkt[3],  pkt[4]);
-        printf ("%4d %4d %4d %4d\n\r",  pkt[5],  pkt[6],  pkt[7],  pkt[8]);
-        printf ("%4d %4d %4d %4d\n\r",  pkt[9],  pkt[10], pkt[11], pkt[12]);
-        printf ("%4d %4d %4d %4d\n\r",  pkt[13], pkt[14], pkt[15], pkt[16]);
-
-    	puts("------------\n");
-
-        if (sock_udp_send(&sock, pkt, sizeof(pkt), &remote) < 0)
-        {
-            puts("Error sending message");
-            sock_udp_close(&sock);
-            return 1;
-        }
-
-        xtimer_sleep(2);
+        xtimer_usleep(interval);
     }
-/*
-        static const shell_command_t shell_commands[] = {
-            { NULL, NULL, NULL }
-        };
-        puts("All up, running the shell now");
-        char line_buf[SHELL_DEFAULT_BUFSIZE];
-        shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
-
-        return -1;
-*/
-
     return 0;
 }
